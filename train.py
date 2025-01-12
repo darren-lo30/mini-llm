@@ -21,6 +21,7 @@ class TrainConfig():
   eval_freq: int = 100
   log_freq: int = 100
   save_freq: int = 1000
+  eval_iters: int = 50
 
   # Save options
   save_dir: str = './out'
@@ -86,9 +87,12 @@ def train(config: TrainConfig):
     if step % config.eval_freq == 0:
       model.eval()
       with torch.no_grad():
-        inputs, targets = next(val_iter)
-        logits = model(inputs)
-        val_loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)                
+        val_loss = 0
+        for _ in range(config.eval_iters):
+          inputs, targets = next(val_iter)
+          logits = model(inputs)
+          val_loss += torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)                
+        val_loss = val_loss.item() / config.eval_iters
       print(f"Validation Loss: {val_loss:.4f}")
 
     if step % config.save_freq == 0:
