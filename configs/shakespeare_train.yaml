@@ -3,7 +3,7 @@ model_config:
   embed_size: 256
   block_size: 256
   num_layers: 6
-  num_attn_heads: 6
+  num_attn_heads: 4
   p_dropout: 0.2
   ffn_hidden_dim_factor: 4
   bias: true
