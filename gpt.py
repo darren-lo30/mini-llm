@@ -9,7 +9,7 @@ class GPTConfig:
   vocab_size: int
   block_size: int
   num_layers: int 
-  ffn_hidden_dim: int
+  ffn_hidden_dim_factor: int
   p_dropout: float
   num_attn_heads: int
   attention_impl: str
@@ -23,7 +23,7 @@ class Attention(nn.Module):
     P = torch.matmul(Q, K.transpose(2, 3)) * softmax_scale
     if is_causal:
       P[:, :, mask == 0] = float("-inf")
-    P = torch.nn.functional.softmax(P.float(), dim=-1).half()
+    P = torch.nn.functional.softmax(P.float(), dim=-1)
     out = torch.matmul(P, V)
 
     return out
@@ -32,9 +32,10 @@ class Attention(nn.Module):
 class FFN(nn.Module):
   def __init__(self, config: GPTConfig):
     super().__init__()
-    self.lin1 = nn.Linear(config.embed_size, config.ffn_hidden_dim)
+    hidden_dim_size = config.ffn_hidden_dim_factor * config.embed_size
+    self.lin1 = nn.Linear(config.embed_size, hidden_dim_size)
     self.gelu = nn.GELU()
-    self.lin2 = nn.Linear(config.ffn_hidden_dim, config.embed_size)
+    self.lin2 = nn.Linear(hidden_dim_size, config.embed_size)
 
   def forward(self, x):
     x = self.lin1(x)
@@ -62,7 +63,7 @@ class MultiHeadAttention(nn.Module):
 
     self.lin_out = nn.Linear(config.embed_size, config.embed_size)
 
-  def forward(self, QKV, is_causal = False): 
+  def forward(self, QKV, is_causal): 
     batch_size = QKV.shape[0]
 
     Q = self.Q_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
@@ -84,7 +85,7 @@ class TransformerBlock(nn.Module):
     self.dropout = nn.Dropout(config.p_dropout)
 
   def forward(self, x):
-    x = x + self.mha(self.ln_1(x))
+    x = x + self.mha(self.ln_1(x), is_causal=True)
     x = x + self.dropout(self.ffn(self.ln_2(x)))
     return x
 
@@ -123,7 +124,8 @@ class GPT(nn.Module):
 
     out = self.layer_norm(out)
     out = self.out_linear(out)
-    out = self.softmax(out)
+
+    # Return logits
 
     return out
   
