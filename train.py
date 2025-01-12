@@ -5,6 +5,7 @@ import torch
 import os
 import hydra
 from hydra.core.config_store import ConfigStore
+import math 
 
 @dataclass
 class TrainConfig():
@@ -14,7 +15,7 @@ class TrainConfig():
   num_grad_acc_steps: int = 4
   device: str = 'cuda'
   data_path: str = './data'
-  learning_rate: float = 0.001
+  learning_rate: float = 6e-4
   num_steps: int = 10000
 
   # Training loop freqs
@@ -23,8 +24,29 @@ class TrainConfig():
   save_freq: int = 1000
   eval_iters: int = 50
 
+  # Lr schedulers
+  lr_warmup: int = 2000
+  lr_decay: int = 10000
+  min_learning_rate: float = 6e-5
+
   # Save options
   save_dir: str = './out'
+
+def get_lr(config, step):
+  assert config.lr_decay > config.lr_warmup
+  assert config.min_learning_rate < config.learning_rate
+
+  if step < config.lr_warmup:
+    return config.learning_rate / config.lr_warmup
+
+  if step <= config.lr_decay:
+    ratio = (step - config.lr_warmup) / (config.lr_decay - config.lr_warmup)
+    assert 0 <= ratio <= 1
+    return config.min_learning_rate + math.cos(ratio) * (config.learning_rate - config.min_learning_rate)
+
+  return config.min_learning_rate
+
+
 
 def train(config: TrainConfig):  
   # Set up folders
@@ -58,6 +80,10 @@ def train(config: TrainConfig):
   print('Starting Training')
   # Training loop
   while step <= config.num_steps:
+    lr = get_lr(step)
+    for param_group in optimizer.param_groups:
+      param_group['lr'] = lr
+
     optimizer.zero_grad(set_to_none=True)    
     model.train()
     

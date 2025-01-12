@@ -1,3 +1,4 @@
+# Hyperparameters taken from NanoGPT
 model_config: 
   vocab_size: 50304 
   embed_size: 384
@@ -13,10 +14,13 @@ batch_size: 64
 num_grad_acc_steps: 1
 device: 'mps'
 data_path: './data'
-learning_rate: 6.0e-4
-num_steps: 1000
+learning_rate: 1.0e-3
+num_steps: 5000
 eval_freq: 100
 log_freq: 100
 save_freq: 500
 eval_iters: 50
+lr_warmup: 100
+lr_decay: 5000
+min_learning_rate: 1.0e-4
 save_dir: './out/shakespeare'
