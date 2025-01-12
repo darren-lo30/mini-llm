@@ -36,11 +36,13 @@ class FFN(nn.Module):
     self.lin1 = nn.Linear(config.embed_size, hidden_dim_size)
     self.gelu = nn.GELU()
     self.lin2 = nn.Linear(hidden_dim_size, config.embed_size)
+    self.dropout = nn.Dropout(config.p_dropout)
 
   def forward(self, x):
     x = self.lin1(x)
     x = self.gelu(x)
     x = self.lin2(x)
+    x = self.dropout(x)
 
     return x
   
@@ -71,6 +73,8 @@ class MultiHeadAttention(nn.Module):
     V = self.V_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
 
     out = self.attention(Q, K, V, is_causal = is_causal, softmax_scale = self.softmax_scale) # Same shape as Q, reshape
+    # out: [bs, num_heads, seq_len, embed_size]
+    out = out.transpose(1, 2).contiguous()
     out = out.view(batch_size, -1, self.config.embed_size)
     out = self.lin_out(out)
     return out
