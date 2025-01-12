@@ -16,7 +16,7 @@ class TextDataloder():
     return self
   
   def __next__(self):
-    data = np.memmap(os.path.join(self.path, 'train.bin'), dtype=np.uint16, mode='r')
+    data = np.memmap(self.path, dtype=np.uint16, mode='r')
     ix = torch.randint(len(data) - self.block_size, (self.batch_size,))
     x = torch.stack([torch.from_numpy((data[i:i+self.block_size]).astype(np.int64)) for i in ix])
     y = torch.stack([torch.from_numpy((data[i+1:i+1+self.block_size]).astype(np.int64)) for i in ix])

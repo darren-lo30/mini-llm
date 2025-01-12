@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from torch import nn as nn
 import torch
-
-from attention import FlashAttention
+import math
 
 @dataclass
 class GPTConfig:
@@ -13,9 +12,26 @@ class GPTConfig:
   ffn_hidden_dim: int
   p_dropout: float
   num_attn_heads: int
+  attention_impl: str
+  bias: bool
 
-class FFN():
+class Attention(nn.Module):
+  def forward(self, Q, K, V, is_causal, softmax_scale):
+    seq_len = Q.shape[2]
+
+    mask = torch.tril(torch.ones((seq_len, seq_len), device=Q.device))
+    P = torch.matmul(Q, K.transpose(2, 3)) * softmax_scale
+    if is_causal:
+      P[:, :, mask == 0] = float("-inf")
+    P = torch.nn.functional.softmax(P.float(), dim=-1).half()
+    out = torch.matmul(P, V)
+
+    return out
+  
+
+class FFN(nn.Module):
   def __init__(self, config: GPTConfig):
+    super().__init__()
     self.lin1 = nn.Linear(config.embed_size, config.ffn_hidden_dim)
     self.gelu = nn.GELU()
     self.lin2 = nn.Linear(config.ffn_hidden_dim, config.embed_size)
@@ -27,38 +43,44 @@ class FFN():
 
     return x
   
-class MultiHeadAttention():
+class MultiHeadAttention(nn.Module):
   def __init__(self, config: GPTConfig):
+    super().__init__()
     self.Q_proj = nn.Linear(config.embed_size, config.embed_size) 
     self.K_proj = nn.Linear(config.embed_size, config.embed_size) 
     self.V_proj = nn.Linear(config.embed_size, config.embed_size)
 
     self.config = config
     self.head_embed_size = config.embed_size // config.num_attn_heads
-    self.softmax_scale = torch.sqrt(self.head_embed_size)
+    self.softmax_scale = math.sqrt(self.head_embed_size)
 
-    self.attention = FlashAttention()
+    if config.attention_impl == 'flash':
+      from flash_attention import FlashAttention
+      self.attention = FlashAttention()
+    else:
+      self.attention = Attention()
+
     self.lin_out = nn.Linear(config.embed_size, config.embed_size)
 
-  def forward(self, Q, K, V, is_causal = False): 
-    batch_size = Q.shape[0]
+  def forward(self, QKV, is_causal = False): 
+    batch_size = QKV.shape[0]
 
-    Q = self.Q_proj(Q).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
-    K = self.K_proj(K).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
-    V = self.V_proj(V).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
+    Q = self.Q_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
+    K = self.K_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
+    V = self.V_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
 
-    out = FlashAttention(Q, K, V, is_causal = is_causal, softmax_scale = self.softmax_scale) # Same shape as Q, reshape
+    out = self.attention(Q, K, V, is_causal = is_causal, softmax_scale = self.softmax_scale) # Same shape as Q, reshape
     out = out.view(batch_size, -1, self.config.embed_size)
     out = self.lin_out(out)
     return out
   
-class TransformerBlock():
-  def __init__(self, config):
+class TransformerBlock(nn.Module):
+  def __init__(self, config: GPTConfig):
     super().__init__()
-    self.ln_1 = nn.LayerNorm(config.n_embd, bias=config.bias)
-    self.mha = MultiHeadAttention()
-    self.ln_2 = nn.LayerNorm(config.n_embd, bias=config.bias)
-    self.ffn = nn.FFN(config)
+    self.ln_1 = nn.LayerNorm(config.embed_size, bias=config.bias)
+    self.mha = MultiHeadAttention(config)
+    self.ln_2 = nn.LayerNorm(config.embed_size, bias=config.bias)
+    self.ffn = FFN(config)
     self.dropout = nn.Dropout(config.p_dropout)
 
   def forward(self, x):
@@ -67,18 +89,19 @@ class TransformerBlock():
     return x
 
 
-class GPT():
+class GPT(nn.Module):
   def __init__(self, config: GPTConfig):
+    super().__init__()
     self.config = config
 
     self.out_linear = nn.LazyLinear(config.vocab_size)
     self.softmax = nn.Softmax()
-    self.layer_norm = nn.LayerNorm()
+    self.layer_norm = nn.LayerNorm(config.embed_size, bias=config.bias)
 
-    self.token_embed = nn.Embedding(config.vocab_size, config.embed_size),
-    self.pos_embed = nn.Embedding(config.block_size, config.embed_size),
+    self.token_embed = nn.Embedding(config.vocab_size, config.embed_size)
+    self.pos_embed = nn.Embedding(config.block_size, config.embed_size)
   
-    self.transformer_blocks = [TransformerBlock() for _ in range(config.num_layers)]
+    self.transformer_blocks = nn.ModuleList([TransformerBlock(config) for _ in range(config.num_layers)])
 
   def get_pos_embeds(self, num, device):
     indices = torch.arange(0, num, device=device)

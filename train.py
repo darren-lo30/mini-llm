@@ -1,25 +1,21 @@
 from dataclasses import dataclass
-from tabnanny import check
 from data.load_data import TextDataloder
 from gpt import GPT, GPTConfig
 import torch
 import os
 import hydra
+from hydra.core.config_store import ConfigStore
 
 @dataclass
 class TrainConfig():
   model_config: GPTConfig 
-  checkpoint_file: None | str = None
+  checkpoint_file: str | None = None
   batch_size: int = 8
-  num_grad_acc_steps: int
+  num_grad_acc_steps: int = 4
   device: str = 'cuda'
   data_path: str = './data'
-  learning_rate: int = 0.001
+  learning_rate: float = 0.001
   num_steps: int = 10000
-
-  # Optim options
-  betas: list[float] = 0.999
-  eps: float
 
   # Training loop freqs
   eval_freq: int = 100
@@ -30,13 +26,16 @@ class TrainConfig():
   save_dir: str = './out'
 
 def train(config: TrainConfig):  
+  # Set up folders
+  os.makedirs(config.save_dir, exist_ok=True)
+
   train_dataloader = TextDataloder(config.data_path, 'train', config.model_config.block_size, config.batch_size, config.device) 
-  val_dataloader = TextDataloder(config.data_path, 'train', config.model_config.block_size, config.batch_size, config.device)
+  val_dataloader = TextDataloder(config.data_path, 'val', config.model_config.block_size, config.batch_size, config.device)
 
   train_iter = iter(train_dataloader)
   val_iter = iter(val_dataloader)
 
-  scaler = torch.cuda.amp.GradScaler()
+  scaler = torch.amp.GradScaler()
 
   checkpoint = None
   if config.checkpoint_file is not None:
@@ -71,12 +70,12 @@ def train(config: TrainConfig):
       logits = model(inputs)
       loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
       loss = loss / config.num_grad_acc_steps
+      running_loss += loss.item()
 
       scaler.scale(loss).backward()      
     scaler.step(optimizer)
     scaler.update()
       
-    running_loss += loss.item()
     if step % config.log_freq == 0:
       print(f"Batch {step}, Loss: {loss.item():.4f}")
 
@@ -105,6 +104,9 @@ def train(config: TrainConfig):
     step += 1
 
   print("Training complete.")
+
+cs = ConfigStore.instance()
+cs.store(name="base", node=TrainConfig)
 
 @hydra.main(version_base=None, config_path="./configs")
 def main(cfg: TrainConfig):

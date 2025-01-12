@@ -1,14 +1,17 @@
 model_config: 
   vocab_size: 50304 
-  embed_size: 768
-  block_size: 1024
+  embed_size: 128
+  block_size: 256
   num_layers: 12
-  num_attn_heads: 768
+  num_attn_heads: 4
   p_dropout: 0.0
   ffn_hidden_dim: 3072
+  bias: true
+  attention_impl: 'normal'
+checkpoint_file: null
 batch_size: 8
 num_grad_acc_steps: 4
-device: 'cuda'
+device: 'mps'
 data_path: './data'
 learning_rate: 6.0e-4
 num_steps: 10000

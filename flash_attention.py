@@ -604,17 +604,3 @@ class FlashAttention(torch.autograd.Function):
     )
 
     return dQ, dK, dV, None, None
-
-class Attention(torch.nn.Module):
-  def forward(self, Q, K, V, is_causal, softmax_scale):
-    seq_len = Q.shape[2]
-
-    mask = torch.tril(torch.ones((seq_len, seq_len), device=Q.device))
-    P = torch.matmul(Q, K.transpose(2, 3)) * softmax_scale
-    if is_causal:
-      P[:, :, mask == 0] = float("-inf")
-    P = torch.nn.functional.softmax(P.float(), dim=-1).half()
-    out = torch.matmul(P, V)
-
-    return out
-  
