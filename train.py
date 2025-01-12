@@ -54,7 +54,6 @@ def train(config: TrainConfig):
 
 
   step = 1 if not checkpoint else checkpoint['step']
-  running_loss = 0.0
 
   print('Starting Training')
   # Training loop
@@ -62,6 +61,7 @@ def train(config: TrainConfig):
     optimizer.zero_grad(set_to_none=True)    
     model.train()
     
+    average_train_loss = 0
     for acc_step in range(config.num_grad_acc_steps):
       inputs, targets = next(train_iter)
       assert inputs.device == targets.device
@@ -70,18 +70,14 @@ def train(config: TrainConfig):
       logits = model(inputs)
       loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
       loss = loss / config.num_grad_acc_steps
-      running_loss += loss.item()
+      average_train_loss += loss.item()
 
       scaler.scale(loss).backward()      
     scaler.step(optimizer)
     scaler.update()
       
     if step % config.log_freq == 0:
-      print(f"Step {step}/{config.num_steps}")
-      print(f"Batch {step}, Loss: {loss.item():.4f}")
-
-      avg_train_loss = running_loss / step
-      print(f"Average Training Loss: {avg_train_loss:.4f}")
+      print(f"Step {step}/{config.num_steps}, Train Loss: {average_train_loss:.4f}")
 
     # Model validation
     if step % config.eval_freq == 0:

@@ -104,10 +104,20 @@ class GPT(nn.Module):
   
     self.transformer_blocks = nn.ModuleList([TransformerBlock(config) for _ in range(config.num_layers)])
 
+    self.apply(self._init_weights)
+
   def get_pos_embeds(self, num, device):
     indices = torch.arange(0, num, device=device)
     return self.pos_embed(indices)
   
+  def _init_weights(self, module):
+    if isinstance(module, nn.Linear):
+      torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+      if module.bias is not None:
+        torch.nn.init.zeros_(module.bias)
+    elif isinstance(module, nn.Embedding):
+      torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
   def forward(self, text, kv_cache = None):
     device = text.device
 
