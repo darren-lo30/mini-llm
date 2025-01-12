@@ -55,7 +55,7 @@ class MultiHeadAttention(nn.Module):
 
     self.config = config
     self.head_embed_size = config.embed_size // config.num_attn_heads
-    self.softmax_scale = math.sqrt(self.head_embed_size)
+    self.softmax_scale = 1.0 / math.sqrt(self.head_embed_size)
 
     if config.attention_impl == 'flash':
       from flash_attention import FlashAttention
@@ -68,12 +68,15 @@ class MultiHeadAttention(nn.Module):
   def forward(self, QKV, is_causal): 
     batch_size = QKV.shape[0]
 
-    Q = self.Q_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
-    K = self.K_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
-    V = self.V_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size)
-
+    # QKV <- [batch_size, seq_len, embed_dim]
+    # Projected <- [batch_size, seq_len, embed_dim]
+    Q = self.Q_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size).transpose(1, 2)
+    K = self.K_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size).transpose(1, 2)
+    V = self.V_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size).transpose(1, 2)
+    # Q, K, V <- [batch_size, num_heads, seq_len, embed_dim // num_heads]
     out = self.attention(Q, K, V, is_causal = is_causal, softmax_scale = self.softmax_scale) # Same shape as Q, reshape
-    # out: [bs, num_heads, seq_len, embed_size]
+    # out: [batch_size, num_heads, seq_len, embed_dim // num_heads]
+    assert out.shape == (Q.shape[0], self.config.num_attn_heads, Q.shape[1], self.head_embed_size)
     out = out.transpose(1, 2).contiguous()
     out = out.view(batch_size, -1, self.config.embed_size)
     out = self.lin_out(out)
