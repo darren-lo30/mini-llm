@@ -80,7 +80,7 @@ def train(config: TrainConfig):
   print('Starting Training')
   # Training loop
   while step <= config.num_steps:
-    lr = get_lr(step)
+    lr = get_lr(config, step)
     for param_group in optimizer.param_groups:
       param_group['lr'] = lr
 
