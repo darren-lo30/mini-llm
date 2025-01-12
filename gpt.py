@@ -95,7 +95,7 @@ class GPT(nn.Module):
     super().__init__()
     self.config = config
 
-    self.out_linear = nn.LazyLinear(config.vocab_size)
+    self.out_linear = nn.Linear(config.embed_size, config.vocab_size)
     self.softmax = nn.Softmax()
     self.layer_norm = nn.LayerNorm(config.embed_size, bias=config.bias)
 
