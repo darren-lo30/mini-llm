@@ -55,10 +55,9 @@ def train(config: TrainConfig):
   step = 1 if not checkpoint else checkpoint['step']
   running_loss = 0.0
 
+  print('Starting Training')
   # Training loop
   while step <= config.num_steps:
-    print(f"Step {step}/{config.num_steps}")
-
     optimizer.zero_grad(set_to_none=True)    
     model.train()
     
@@ -77,6 +76,7 @@ def train(config: TrainConfig):
     scaler.update()
       
     if step % config.log_freq == 0:
+      print(f"Step {step}/{config.num_steps}")
       print(f"Batch {step}, Loss: {loss.item():.4f}")
 
       avg_train_loss = running_loss / step
