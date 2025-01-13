@@ -38,7 +38,7 @@ def get_lr(config, step):
   assert config.min_learning_rate < config.learning_rate
 
   if step < config.lr_warmup:
-    return config.learning_rate / config.lr_warmup
+    return step / config.lr_warmup
 
   if step <= config.lr_decay:
     ratio = (step - config.lr_warmup) / (config.lr_decay - config.lr_warmup)

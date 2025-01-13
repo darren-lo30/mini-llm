@@ -103,7 +103,6 @@ class GPT(nn.Module):
     self.config = config
 
     self.out_linear = nn.Linear(config.embed_size, config.vocab_size)
-    self.softmax = nn.Softmax()
     self.layer_norm = nn.LayerNorm(config.embed_size, bias=config.bias)
 
     self.token_embed = nn.Embedding(config.vocab_size, config.embed_size)
