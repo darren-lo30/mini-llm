@@ -463,8 +463,11 @@ def _attention_backward_di(
 
 
   
-  
-class FlashAttention(torch.autograd.Function):
+class FlashAttention(torch.nn.Module):
+  def forward(self, Q, K, V, is_causal, softmax_scale):
+    FlashAttentionFn.apply(Q, K, V, is_causal, softmax_scale)
+
+class FlashAttentionFn(torch.autograd.Function):
   @staticmethod
   def forward(ctx, Q, K, V, is_causal, softmax_scale):
     # Q <- bs x nheads x seq_len x d
