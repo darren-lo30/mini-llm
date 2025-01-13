@@ -43,7 +43,7 @@ def get_lr(config, step):
   if step <= config.lr_decay:
     ratio = (step - config.lr_warmup) / (config.lr_decay - config.lr_warmup)
     assert 0 <= ratio <= 1
-    return config.min_learning_rate + math.cos(ratio) * (config.learning_rate - config.min_learning_rate)
+    return config.min_learning_rate + math.cos(math.pi/2 * ratio) * (config.learning_rate - config.min_learning_rate)
 
   return config.min_learning_rate
 
@@ -69,7 +69,7 @@ def train(config: TrainConfig):
     model = GPT(config.model_config)
 
   model = model.to(device=config.device)
-  optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, betas=[0.9,0.999], eps=1e-8)
+  optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, betas=[0.9,0.999], eps=1e-8, weight_decay=1e-1)
 
   if checkpoint:
     model.load_state_dict(checkpoint['model'])

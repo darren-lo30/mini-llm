@@ -17,7 +17,7 @@ data_path: './data'
 learning_rate: 1.0e-3
 num_steps: 5000
 eval_freq: 100
-log_freq: 100
+log_freq: 10
 save_freq: 500
 eval_iters: 50
 lr_warmup: 100
