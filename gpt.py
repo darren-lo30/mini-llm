@@ -129,6 +129,7 @@ class GPT(nn.Module):
     device = text.device
 
     batch_size, seq_len = text.shape
+    assert seq_len <= self.config.block_size
     
     pos_embeds = self.get_pos_embeds(seq_len, device=device)
     token_embeds = self.token_embed(text)

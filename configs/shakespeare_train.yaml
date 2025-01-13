@@ -24,3 +24,4 @@ lr_warmup: 100
 lr_decay: 5000
 min_learning_rate: 1.0e-4
 save_dir: './out/shakespeare'
+grad_clip: 1.0

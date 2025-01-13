@@ -28,6 +28,7 @@ class TrainConfig():
   lr_warmup: int = 2000
   lr_decay: int = 10000
   min_learning_rate: float = 6e-5
+  grad_clip: float | None = 1.0
 
   # Save options
   save_dir: str = './out'
@@ -98,7 +99,12 @@ def train(config: TrainConfig):
       loss = loss / config.num_grad_acc_steps
       average_train_loss += loss.item()
 
-      scaler.scale(loss).backward()      
+      scaler.scale(loss).backward()  
+
+    if config.grad_clip is not None:
+      scaler.unscale_(optimizer)
+      torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+
     scaler.step(optimizer)
     scaler.update()
       
@@ -125,7 +131,7 @@ def train(config: TrainConfig):
         'model_config': config.model_config,
       }
       print(f"Saving checkpoint to {config.save_dir}")
-      torch.save(checkpoint, os.path.join(config.save_dir, 'ckpt.pt'))
+      torch.save(checkpoint, os.path.join(config.save_dir, f'ckpt_{step}.pt'))
     
     step += 1
 
