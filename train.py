@@ -78,6 +78,7 @@ def train(config: TrainConfig):
     model = GPT(config.model_config)
 
   model = model.to(device=config.device)
+  model = torch.compile(model)
   optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, betas=[0.9,0.999], eps=1e-8, weight_decay=1e-1)
 
   if checkpoint:
