@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from dataclasses import dataclass
 from data.load_data import TextDataloder
 from gpt import GPT, GPTConfig
@@ -59,7 +60,15 @@ def train(config: TrainConfig):
   train_iter = iter(train_dataloader)
   val_iter = iter(val_dataloader)
 
-  scaler = torch.amp.GradScaler()
+  # Precision code from NanoGPT
+  torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
+  torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
+  device_type = 'cuda' if 'cuda' in config.device else 'cpu' # for later use in torch.autocast
+  # note: float16 data type will automatically use a GradScaler
+  dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
+  ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
+  ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
+  scaler = torch.amp.GradScaler(enabled=(dtype == 'float16'))
 
   checkpoint = None
   if config.checkpoint_file is not None:
@@ -93,8 +102,8 @@ def train(config: TrainConfig):
       inputs, targets = next(train_iter)
       assert inputs.device == targets.device
       
-      
-      logits = model(inputs)
+      with ctx:
+        logits = model(inputs)
       loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
       loss = loss / config.num_grad_acc_steps
       average_train_loss += loss.item()
@@ -118,7 +127,8 @@ def train(config: TrainConfig):
         val_loss = 0
         for _ in range(config.eval_iters):
           inputs, targets = next(val_iter)
-          logits = model(inputs)
+          with ctx:
+            logits = model(inputs)
           val_loss += torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)                
         val_loss = val_loss.item() / config.eval_iters
       print(f"Validation Loss: {val_loss:.4f}")
