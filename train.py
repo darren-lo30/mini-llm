@@ -30,6 +30,7 @@ class TrainConfig():
   lr_decay: int = 10000
   min_learning_rate: float = 6e-5
   grad_clip: float | None = 1.0
+  weight_decay: float = 1e-1
 
   # Save options
   save_dir: str = './out'
@@ -39,7 +40,7 @@ def get_lr(config, step):
   assert config.min_learning_rate < config.learning_rate
 
   if step < config.lr_warmup:
-    return step / config.lr_warmup
+    return config.learning_rate * step / config.lr_warmup
 
   if step <= config.lr_decay:
     ratio = (step - config.lr_warmup) / (config.lr_decay - config.lr_warmup)
@@ -48,7 +49,21 @@ def get_lr(config, step):
 
   return config.min_learning_rate
 
+def setup_optimizer(config: TrainConfig, model):
+  # Don't decay 1D data like biases, or layer norm factors (Otherwise they become useless)
+  param_dict = {pn: p for pn, p in model.named_parameters()}
+  param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
+  # Filter by # dimensions for parameters
+  decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
+  nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+  optim_groups = [
+    {'params': decay_params, 'weight_decay': config.weight_decay},
+    {'params': nodecay_params, 'weight_decay': 0.0}
+  ]
+  optimizer = torch.optim.AdamW(optim_groups, lr=config.learning_rate, betas=[0.9, 0.99])
 
+  return optimizer
+  
 
 def train(config: TrainConfig):  
   # Set up folders
@@ -65,7 +80,7 @@ def train(config: TrainConfig):
   torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
   device_type = 'cuda' if 'cuda' in config.device else 'cpu' # for later use in torch.autocast
   # note: float16 data type will automatically use a GradScaler
-  dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
+  dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() and config.model_config.attention_impl != 'flash' else 'float16' 
   ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
   ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
   scaler = torch.amp.GradScaler(enabled=(dtype == 'float16'))
@@ -76,10 +91,11 @@ def train(config: TrainConfig):
     model = GPT(checkpoint['model_config'])
   else:
     model = GPT(config.model_config)
-
   model = model.to(device=config.device)
-  model = torch.compile(model)
-  optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, betas=[0.9,0.999], eps=1e-8, weight_decay=1e-1)
+  # model = torch.compile(model)
+  optimizer = setup_optimizer(config, model)
+  # optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, betas=[0.9,0.999], weight_decay=1e-1)
+  # optimizer = model.configure_optimizers(1e-1, config.learning_rate, (0.9, 0.99), device_type)
 
   if checkpoint:
     model.load_state_dict(checkpoint['model'])
@@ -91,12 +107,13 @@ def train(config: TrainConfig):
   print('Starting Training')
   # Training loop
   while step <= config.num_steps:
+    model.train()
+    optimizer.zero_grad(set_to_none=True)    
+
     lr = get_lr(config, step)
     for param_group in optimizer.param_groups:
       param_group['lr'] = lr
 
-    optimizer.zero_grad(set_to_none=True)    
-    model.train()
     
     average_train_loss = 0
     for acc_step in range(config.num_grad_acc_steps):
@@ -125,13 +142,14 @@ def train(config: TrainConfig):
     if step % config.eval_freq == 0:
       model.eval()
       with torch.no_grad():
-        val_loss = 0
+        avg_val_loss = 0
         for _ in range(config.eval_iters):
           inputs, targets = next(val_iter)
           with ctx:
             logits = model(inputs)
-          val_loss += torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)                
-        val_loss = val_loss.item() / config.eval_iters
+          val_loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+          avg_val_loss += val_loss
+        avg_val_loss = avg_val_loss.item() / config.eval_iters
       print(f"Validation Loss: {val_loss:.4f}")
 
     if step % config.save_freq == 0:

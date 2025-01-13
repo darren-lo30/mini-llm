@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from torch import nn as nn
 import torch
 import math
-
+import inspect
 @dataclass
 class GPTConfig:
   embed_size: int
@@ -58,8 +58,8 @@ class MultiHeadAttention(nn.Module):
     self.softmax_scale = 1.0 / math.sqrt(self.head_embed_size)
 
     if config.attention_impl == 'flash':
-      from flash_attention import FlashAttention
-      self.attention = FlashAttention()
+      from flash_attention import FlashAttentionFn
+      self.attention = FlashAttentionFn.apply
     else:
       self.attention = Attention()
 
@@ -70,11 +70,15 @@ class MultiHeadAttention(nn.Module):
 
     # QKV <- [batch_size, seq_len, embed_dim]
     # Projected <- [batch_size, seq_len, embed_dim]
-    Q = self.Q_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size).transpose(1, 2)
-    K = self.K_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size).transpose(1, 2)
-    V = self.V_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size).transpose(1, 2)
+    Q = self.Q_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size).transpose(1, 2).contiguous()
+    K = self.K_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size).transpose(1, 2).contiguous()
+    V = self.V_proj(QKV).view(batch_size, -1, self.config.num_attn_heads, self.head_embed_size).transpose(1, 2).contiguous()
     # Q, K, V <- [batch_size, num_heads, seq_len, embed_dim // num_heads]
-    out = self.attention(Q, K, V, is_causal = is_causal, softmax_scale = self.softmax_scale) # Same shape as Q, reshape
+
+    # if self.config.attention_impl == 'flash':
+    #   out = torch.nn.functional.scaled_dot_product_attention(Q, K, V, attn_mask=None, dropout_p=self.config.p_dropout if self.training else 0, is_causal=True)
+    # else:
+    out = self.attention(Q, K, V, is_causal, self.softmax_scale) # Same shape as Q, reshape
     # out: [batch_size, num_heads, seq_len, embed_dim // num_heads]
     assert out.shape == (Q.shape[0], self.config.num_attn_heads, seq_len, self.head_embed_size)
     out = out.transpose(1, 2).contiguous()
@@ -145,24 +149,29 @@ class GPT(nn.Module):
     # Return logits
 
     return out
-  
+
   @torch.no_grad()
   def generate(self, idx, num_tokens, temperature=1.0):
-    for i in range(num_tokens):
+    # Flash Attention Impl requires padded seq length
+    assert idx.shape == (1, 1)
+    idx = torch.nn.functional.pad(idx, (0, self.config.block_size - 1), mode='constant', value=0)
+
+    for i in range(1, num_tokens + 1):
       idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
       logits = self.forward(idx_cond)
-      logits = logits[:, -1, :] / temperature
+      # print(logits)
+      if i < self.config.block_size:
+        logits = logits[:, i - 1, :] / temperature
+      else:
+        logits = logits[:, -1, :] / temperature
+
       probs = torch.nn.functional.softmax(logits, dim=-1)
+      # print(probs)
       idx_next = torch.multinomial(probs, num_samples=1)
-      idx = torch.cat((idx, idx_next), dim=1)
+
+      if i < self.config.block_size:
+        idx[0, i] = idx_next
+      else:
+        idx = torch.cat((idx, idx_next), dim=1)
 
     return idx
-
-
-
-
-
-
-
-    
-

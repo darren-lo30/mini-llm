@@ -84,7 +84,6 @@ def _attention_forward_helper(
   key=["SEQ_LEN", "EMB_DIM"],
 )
 @triton.jit
-@triton.jit
 def _attention_forward(
   Q,
   K,
@@ -304,6 +303,7 @@ def _attention_backward_dk_dv(
 
   curr_q = 0
   # Iterate over all queries
+  assert SEQ_LEN % BLOCK_Q == 0
   num_steps = SEQ_LEN // BLOCK_Q
   for blk_idx in range(num_steps):
     qT_block = tl.load(qT_ptrs)
@@ -409,6 +409,7 @@ def _attention_backward_dq(
     Di = tl.load(D + offs_q)
 
     curr_kv = 0
+    assert SEQ_LEN % BLOCK_KV == 0
     num_steps = SEQ_LEN // BLOCK_KV
     # Iterate through K, V blocks
     for blk_idx in range(num_steps):
@@ -463,12 +464,8 @@ def _attention_backward_di(
 
 
   
-class FlashAttention(torch.nn.Module):
-  def forward(self, Q, K, V, is_causal, softmax_scale):
-    FlashAttentionFn.apply(Q, K, V, is_causal, softmax_scale)
-
 class FlashAttentionFn(torch.autograd.Function):
-  @staticmethod
+  @staticmethod 
   def forward(ctx, Q, K, V, is_causal, softmax_scale):
     # Q <- bs x nheads x seq_len x d
     # K <- bs x nheads x num_kvs x d
@@ -528,6 +525,7 @@ class FlashAttentionFn(torch.autograd.Function):
   def backward(ctx, dO):
     Q, K, V, O, M = ctx.saved_tensors
 
+    dO = dO.contiguous()
     assert dO.is_contiguous()
     assert Q.stride() == K.stride() == V.stride() == O.stride() == dO.stride()
     dQ = torch.empty_like(Q)
@@ -538,6 +536,7 @@ class FlashAttentionFn(torch.autograd.Function):
     NUM_WARPS, NUM_STAGES = 4, 3
     BLOCK_SIZE_MICRO, BLOCK_SIZE_MACRO = 32, 128
 
+    assert SEQ_LEN % BLOCK_SIZE_MACRO == 0
     preprocess_grid = (SEQ_LEN // BLOCK_SIZE_MACRO, BATCH_SIZE * NUM_HEADS)
     D = torch.empty_like(M) 
 
