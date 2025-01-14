@@ -2,11 +2,16 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from data.load_data import TextDataloder
 from gpt import GPT, GPTConfig
+from model import GPTConfig as NanoGPTConfig
+from model import GPT as NanoGPT
+import time
 import torch
 import os
 import hydra
 from hydra.core.config_store import ConfigStore
 import math 
+import inspect
+import pickle
 
 @dataclass
 class TrainConfig():
@@ -91,6 +96,17 @@ def train(config: TrainConfig):
     model = GPT(checkpoint['model_config'])
   else:
     model = GPT(config.model_config)
+    # tmp_config = NanoGPTConfig(
+    #   block_size=config.model_config.block_size,
+    #   vocab_size=config.model_config.vocab_size,
+    #   n_layer=config.model_config.num_layers,
+    #   n_head=config.model_config.num_attn_heads,
+    #   n_embd=config.model_config.embed_size,
+    #   dropout=0.2,
+    #   bias=True
+    # )
+    # model = NanoGPT(tmp_config)
+
   model = model.to(device=config.device)
   # model = torch.compile(model)
   optimizer = setup_optimizer(config, model)
@@ -103,6 +119,15 @@ def train(config: TrainConfig):
 
 
   step = 1 if not checkpoint else checkpoint['step']
+  meta_path = os.path.join('./data', 'meta.pkl')
+  if os.path.exists(meta_path):
+    print(f"Loading meta from {meta_path}...")
+    with open(meta_path, 'rb') as f:
+        meta = pickle.load(f)
+    # TODO want to make this more general to arbitrary encoder/decoder schemes
+    stoi, itos = meta['stoi'], meta['itos']
+    encode = lambda s: [stoi[c] for c in s]
+    decode = lambda l: ''.join([itos[i] for i in l])
 
   print('Starting Training')
   # Training loop
@@ -121,7 +146,7 @@ def train(config: TrainConfig):
       assert inputs.device == targets.device
       
       with ctx:
-        logits = model(inputs)
+        logits, _ = model(inputs)
       loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
       loss = loss / config.num_grad_acc_steps
       average_train_loss += loss.item()
@@ -146,7 +171,7 @@ def train(config: TrainConfig):
         for _ in range(config.eval_iters):
           inputs, targets = next(val_iter)
           with ctx:
-            logits = model(inputs)
+            logits, _ = model(inputs)
           val_loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
           avg_val_loss += val_loss
         avg_val_loss = avg_val_loss.item() / config.eval_iters

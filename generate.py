@@ -17,6 +17,7 @@ class GenerateConfig():
   data_path: str = MISSING
   device: str = 'cuda'
   attention_impl: str | None = None
+  use_kv_cache: bool = False
 
 def generate(config: GenerateConfig):
   checkpoint = torch.load(config.checkpoint_path)
@@ -59,7 +60,7 @@ def generate(config: GenerateConfig):
   with torch.no_grad():
     with ctx:
       for k in range(num_samples):
-        y = model.generate(x, num_new_tokens, temperature=temperature)
+        y = model.generate(x, num_new_tokens, temperature=temperature, use_kv_cache=config.use_kv_cache)
         print(decode(y[0].tolist()))
         print('---------------')
   t1 = time.time()
