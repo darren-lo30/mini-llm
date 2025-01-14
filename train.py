@@ -96,16 +96,6 @@ def train(config: TrainConfig):
     model = GPT(checkpoint['model_config'])
   else:
     model = GPT(config.model_config)
-    # tmp_config = NanoGPTConfig(
-    #   block_size=config.model_config.block_size,
-    #   vocab_size=config.model_config.vocab_size,
-    #   n_layer=config.model_config.num_layers,
-    #   n_head=config.model_config.num_attn_heads,
-    #   n_embd=config.model_config.embed_size,
-    #   dropout=0.2,
-    #   bias=True
-    # )
-    # model = NanoGPT(tmp_config)
 
   model = model.to(device=config.device)
   # model = torch.compile(model)

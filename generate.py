@@ -31,12 +31,13 @@ def generate(config: GenerateConfig):
   model.to(config.device)
   model = torch.compile(model)
 
+  # Generation code from NanoGPT
+
   meta_path = os.path.join(config.data_path, 'meta.pkl')
   if os.path.exists(meta_path):
     print(f"Loading meta from {meta_path}...")
     with open(meta_path, 'rb') as f:
         meta = pickle.load(f)
-    # TODO want to make this more general to arbitrary encoder/decoder schemes
     stoi, itos = meta['stoi'], meta['itos']
     encode = lambda s: [stoi[c] for c in s]
     decode = lambda l: ''.join([itos[i] for i in l])
